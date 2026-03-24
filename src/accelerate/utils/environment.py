@@ -347,8 +347,9 @@ def override_numa_affinity(local_process_index: int, verbose: Optional[bool] = N
         rank_affinities = _parse_cpu_affinity_map(affinity_map_str)
         if local_process_index >= len(rank_affinities):
             raise ValueError(
-                f"CPU affinity map has {len(rank_affinities)} entries but local_process_index is "
-                f"{local_process_index}. Provide an entry for each local rank."
+                f"--cpu_affinity_map has {len(rank_affinities)} entries but local rank {local_process_index} "
+                f"requires at least {local_process_index + 1}. Provide a semicolon-delimited cpulist entry "
+                f"for each local rank (e.g. '0-3;4-7' for 2 ranks)."
             )
         affinity_to_set = rank_affinities[local_process_index]
         os.sched_setaffinity(0, affinity_to_set)
