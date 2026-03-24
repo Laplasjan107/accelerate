@@ -123,6 +123,8 @@ class BaseConfig:
             config_dict["debug"] = False
         if "enable_cpu_affinity" not in config_dict:
             config_dict["enable_cpu_affinity"] = False
+        if "cpu_affinity_map" not in config_dict:
+            config_dict["cpu_affinity_map"] = None
         return config_dict
 
     @classmethod
@@ -187,6 +189,7 @@ class ClusterConfig(BaseConfig):
     same_network: Optional[bool] = False
     main_training_function: str = "main"
     enable_cpu_affinity: bool = False
+    cpu_affinity_map: Optional[str] = None
 
     # args for FP8 training
     fp8_config: Optional[dict] = None
@@ -250,3 +253,4 @@ class SageMakerConfig(BaseConfig):
     additional_args: Optional[dict] = None
     dynamo_config: Optional[dict] = None
     enable_cpu_affinity: bool = False
+    cpu_affinity_map: Optional[str] = None

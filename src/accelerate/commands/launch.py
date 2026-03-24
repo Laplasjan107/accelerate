@@ -212,6 +212,14 @@ def launch_command_parser(subparsers=None):
         action="store_true",
         help="Whether or not CPU affinity and balancing should be enabled. Currently only supported on NVIDIA hardware.",
     )
+    resource_args.add_argument(
+        "--cpu_affinity_map",
+        type=str,
+        default=None,
+        help="Explicit CPU affinity map as semicolon-delimited cpulists, one per local rank. "
+        "Each entry uses standard Linux cpulist format (e.g. '0,1,16,17;2-7;8-15'). "
+        "When set, overrides the automatic NUMA-based affinity from --enable_cpu_affinity.",
+    )
     # Dynamo arguments
     resource_args.add_argument(
         "--dynamo_backend",

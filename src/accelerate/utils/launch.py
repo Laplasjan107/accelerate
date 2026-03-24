@@ -195,6 +195,9 @@ def prepare_simple_launcher_cmd_env(args: argparse.Namespace) -> tuple[list[str]
     current_env["OMP_NUM_THREADS"] = str(args.num_cpu_threads_per_process)
     if args.enable_cpu_affinity:
         current_env["ACCELERATE_CPU_AFFINITY"] = "1"
+    if getattr(args, "cpu_affinity_map", None) is not None:
+        current_env["ACCELERATE_CPU_AFFINITY"] = "1"
+        current_env["ACCELERATE_CPU_AFFINITY_MAP"] = args.cpu_affinity_map
     return cmd, current_env
 
 
@@ -392,6 +395,9 @@ def prepare_multi_gpu_env(args: argparse.Namespace) -> dict[str, str]:
     current_env["OMP_NUM_THREADS"] = str(args.num_cpu_threads_per_process)
     if args.enable_cpu_affinity:
         current_env["ACCELERATE_CPU_AFFINITY"] = "1"
+    if getattr(args, "cpu_affinity_map", None) is not None:
+        current_env["ACCELERATE_CPU_AFFINITY"] = "1"
+        current_env["ACCELERATE_CPU_AFFINITY_MAP"] = args.cpu_affinity_map
 
     if args.use_parallelism_config:
         current_env = prepare_extend_env_parallelism_config(args, current_env)
@@ -581,6 +587,9 @@ def prepare_deepspeed_cmd_env(args: argparse.Namespace) -> tuple[list[str], dict
         current_env["ACCELERATE_DEEPSPEED_CONFIG_FILE"] = str(args.deepspeed_config_file)
     if args.enable_cpu_affinity:
         current_env["ACCELERATE_CPU_AFFINITY"] = "1"
+    if getattr(args, "cpu_affinity_map", None) is not None:
+        current_env["ACCELERATE_CPU_AFFINITY"] = "1"
+        current_env["ACCELERATE_CPU_AFFINITY_MAP"] = args.cpu_affinity_map
     if args.deepspeed_moe_layer_cls_names is not None:
         current_env["ACCELERATE_DEEPSPEED_MOE_LAYER_CLS_NAMES"] = str(args.deepspeed_moe_layer_cls_names)
 

@@ -283,10 +283,55 @@ def get_cpu_distributed_information() -> CPUInformation:
     return CPUInformation(**information)
 
 
+def _parse_cpulist(cpulist: str) -> list[int]:
+    """
+    Parses a Linux cpulist format string into a list of CPU core indices.
+
+    Supports individual cores and ranges, e.g. '0,1,16,17' or '2-7' or '0-3,8-11'.
+
+    Args:
+        cpulist (str):
+            A string in Linux cpulist format.
+
+    Returns:
+        A sorted list of CPU core indices.
+    """
+    cores = []
+    for part in cpulist.split(","):
+        part = part.strip()
+        if "-" in part:
+            start, end = part.split("-", 1)
+            cores.extend(range(int(start), int(end) + 1))
+        else:
+            cores.append(int(part))
+    return sorted(cores)
+
+
+def _parse_cpu_affinity_map(affinity_map: str) -> list[list[int]]:
+    """
+    Parses a semicolon-delimited CPU affinity map string into a list of core lists, one per local rank.
+
+    Each entry uses standard Linux cpulist format. For example:
+        '0,1,16,17;2-7;8-15' means rank 0 gets cores {0,1,16,17}, rank 1 gets {2-7}, rank 2 gets {8-15}.
+
+    Args:
+        affinity_map (str):
+            Semicolon-delimited cpulists.
+
+    Returns:
+        A list of core lists, indexed by local rank.
+    """
+    return [_parse_cpulist(entry) for entry in affinity_map.split(";")]
+
+
 def override_numa_affinity(local_process_index: int, verbose: Optional[bool] = None) -> None:
     """
     Overrides whatever NUMA affinity is set for the current process. This is very taxing and requires recalculating the
     affinity to set, ideally you should use `utils.environment.set_numa_affinity` instead.
+
+    If the environment variable `ACCELERATE_CPU_AFFINITY_MAP` is set, it will be used to determine the CPU cores
+    for each local rank instead of querying NVIDIA's NVML library. The format is semicolon-delimited cpulists
+    (e.g. '0,1,16,17;2-7;8-15'), one entry per local rank.
 
     Args:
         local_process_index (int):
@@ -296,6 +341,25 @@ def override_numa_affinity(local_process_index: int, verbose: Optional[bool] = N
     """
     if verbose is None:
         verbose = parse_flag_from_env("ACCELERATE_DEBUG_MODE", False)
+
+    affinity_map_str = os.environ.get("ACCELERATE_CPU_AFFINITY_MAP")
+    if affinity_map_str is not None:
+        rank_affinities = _parse_cpu_affinity_map(affinity_map_str)
+        if local_process_index >= len(rank_affinities):
+            raise ValueError(
+                f"CPU affinity map has {len(rank_affinities)} entries but local_process_index is "
+                f"{local_process_index}. Provide an entry for each local rank."
+            )
+        affinity_to_set = rank_affinities[local_process_index]
+        os.sched_setaffinity(0, affinity_to_set)
+        if verbose:
+            cpu_cores = os.sched_getaffinity(0)
+            logger.info(
+                f"Assigning {len(cpu_cores)} cpu cores to process {local_process_index} "
+                f"(from explicit affinity map): {cpu_cores}"
+            )
+        return
+
     if torch.cuda.is_available():
         from accelerate.utils import is_pynvml_available
 
@@ -328,7 +392,7 @@ def set_numa_affinity(local_process_index: int, verbose: Optional[bool] = None) 
     Assigns the current process to a specific NUMA node. Ideally most efficient when having at least 2 cpus per node.
 
     This result is cached between calls. If you want to override it, please use
-    `accelerate.utils.environment.override_numa_afifnity`.
+    `accelerate.utils.environment.override_numa_affinity`.
 
     Args:
         local_process_index (int):

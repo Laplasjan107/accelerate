@@ -134,6 +134,7 @@ def write_basic_config(mixed_precision="no", save_location: str = default_json_c
         config["distributed_type"] = "NO"
     config["debug"] = False
     config["enable_cpu_affinity"] = False
+    config["cpu_affinity_map"] = None
     config = ClusterConfig(**config)
     config.to_json_file(path)
     return path
