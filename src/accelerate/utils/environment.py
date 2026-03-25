@@ -331,8 +331,16 @@ def _set_membind(numa_nodes: list[int]) -> None:
     """
     import ctypes
     import ctypes.util
+    import platform
 
     MPOL_BIND = 2
+
+    # set_mempolicy is a syscall, not a libc function — must invoke via syscall()
+    arch = platform.machine()
+    syscall_nr = {"x86_64": 238, "aarch64": 236}.get(arch)
+    if syscall_nr is None:
+        logger.warning(f"set_mempolicy: unsupported architecture {arch} — skipping memory binding")
+        return
 
     libc_name = ctypes.util.find_library("c")
     if libc_name is None:
@@ -350,7 +358,12 @@ def _set_membind(numa_nodes: list[int]) -> None:
     for node in numa_nodes:
         nodemask[node // 64] |= 1 << (node % 64)
 
-    ret = libc.set_mempolicy(ctypes.c_int(MPOL_BIND), nodemask, ctypes.c_ulong(max_node + 1))
+    ret = libc.syscall(
+        ctypes.c_long(syscall_nr),
+        ctypes.c_int(MPOL_BIND),
+        nodemask,
+        ctypes.c_ulong(max_node + 1),
+    )
     if ret != 0:
         errno = ctypes.get_errno()
         logger.warning(f"set_mempolicy(MPOL_BIND) failed with errno {errno}: {os.strerror(errno)}")
