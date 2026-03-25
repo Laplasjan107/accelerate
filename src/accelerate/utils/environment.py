@@ -283,6 +283,79 @@ def get_cpu_distributed_information() -> CPUInformation:
     return CPUInformation(**information)
 
 
+def _get_numa_nodes_for_cpus(cpu_ids: list[int]) -> list[int]:
+    """
+    Determines which NUMA node(s) a set of CPU core IDs belong to.
+
+    Reads the sysfs topology to map CPU IDs to their NUMA nodes.
+
+    Args:
+        cpu_ids (list[int]):
+            CPU core indices.
+
+    Returns:
+        A sorted list of NUMA node IDs that the given CPUs belong to.
+    """
+    numa_nodes = set()
+    node_dir = "/sys/devices/system/node"
+    if not os.path.isdir(node_dir):
+        return []
+    for entry in os.listdir(node_dir):
+        if not entry.startswith("node"):
+            continue
+        try:
+            node_id = int(entry[4:])
+        except ValueError:
+            continue
+        cpulist_path = os.path.join(node_dir, entry, "cpulist")
+        try:
+            with open(cpulist_path) as f:
+                node_cpus = set(_parse_cpulist(f.read().strip()))
+        except (FileNotFoundError, ValueError):
+            continue
+        if node_cpus.intersection(cpu_ids):
+            numa_nodes.add(node_id)
+    return sorted(numa_nodes)
+
+
+def _set_membind(numa_nodes: list[int]) -> None:
+    """
+    Sets the memory policy to MPOL_BIND for the given NUMA nodes via set_mempolicy(2).
+
+    This ensures memory allocations are restricted to the specified NUMA nodes,
+    matching the CPU affinity for optimal locality.
+
+    Args:
+        numa_nodes (list[int]):
+            NUMA node IDs to bind memory to.
+    """
+    import ctypes
+    import ctypes.util
+
+    MPOL_BIND = 2
+
+    libc_name = ctypes.util.find_library("c")
+    if libc_name is None:
+        logger.warning("Could not find libc — skipping memory binding")
+        return
+    libc = ctypes.CDLL(libc_name, use_errno=True)
+
+    if not numa_nodes:
+        return
+
+    max_node = max(numa_nodes) + 1
+    # Kernel expects maxnode to be at least max_node + 1, and nodemask is an array of unsigned longs
+    mask_longs = (max_node + 63) // 64
+    nodemask = (ctypes.c_ulong * mask_longs)()
+    for node in numa_nodes:
+        nodemask[node // 64] |= 1 << (node % 64)
+
+    ret = libc.set_mempolicy(ctypes.c_int(MPOL_BIND), nodemask, ctypes.c_ulong(max_node + 1))
+    if ret != 0:
+        errno = ctypes.get_errno()
+        logger.warning(f"set_mempolicy(MPOL_BIND) failed with errno {errno}: {os.strerror(errno)}")
+
+
 def _parse_cpulist(cpulist: str) -> list[int]:
     """
     Parses a Linux cpulist format string into a list of CPU core indices.
@@ -353,11 +426,15 @@ def override_numa_affinity(local_process_index: int, verbose: Optional[bool] = N
             )
         affinity_to_set = rank_affinities[local_process_index]
         os.sched_setaffinity(0, affinity_to_set)
+        # Bind memory to the NUMA nodes that own these CPU cores
+        numa_nodes = _get_numa_nodes_for_cpus(affinity_to_set)
+        if numa_nodes:
+            _set_membind(numa_nodes)
         if verbose:
             cpu_cores = os.sched_getaffinity(0)
             logger.info(
                 f"Assigning {len(cpu_cores)} cpu cores to process {local_process_index} "
-                f"(from explicit affinity map): {cpu_cores}"
+                f"(from explicit affinity map): {cpu_cores}, membind NUMA nodes: {numa_nodes}"
             )
         return
 
